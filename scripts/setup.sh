@@ -32,6 +32,34 @@ else
   warn "No GPU detected. Using CPU mode."
 fi
 
+if [ "$GPU_MODE" = "gpu" ]; then
+  info "Installing NVIDIA drivers and Container Toolkit for GPU support…"
+
+  # 1) Install the recommended NVIDIA driver
+  sudo apt-get update
+  sudo apt-get install -y ubuntu-drivers-common
+  sudo ubuntu-drivers autoinstall
+
+  # 2) Install the NVIDIA Container Toolkit so Docker --gpus works
+  curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+    | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+  curl -sL https://nvidia.github.io/libnvidia-container/stable/$(. /etc/os-release && echo $ID)-$(. /etc/os-release && echo $VERSION_ID)/nvidia-container-toolkit.list \
+    | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
+    | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+  sudo apt-get update
+  sudo apt-get install -y nvidia-container-toolkit
+  sudo nvidia-ctk runtime configure --runtime=docker    # register the NVIDIA runtime :contentReference[oaicite:0]{index=0}
+  sudo systemctl restart docker
+
+  # 3) Enable Flash Attention in Ollama
+  export OLLAMA_FLASH_ATTENTION=1                          # tells Ollama to use Flash Attention :contentReference[oaicite:1]{index=1}
+
+  # (Optional) only expose GPU #0 to Ollama:
+  # export CUDA_VISIBLE_DEVICES=0
+else
+  warn "Skipping GPU setup; continuing in CPU-only mode."
+fi
+
 info "Updating and installing base packages..."
 sudo apt update && sudo apt -y upgrade
 sudo apt install -y \
@@ -90,6 +118,10 @@ After=network.target docker.service
 Requires=docker.service
 
 [Service]
+# If you set OLLAMA_FLASH_ATTENTION above, systemd will pick it up:
+Environment=OLLAMA_FLASH_ATTENTION=1
+# (Optional) To pin to a specific GPU:
+# Environment=CUDA_VISIBLE_DEVICES=0
 ExecStart=/usr/local/bin/ollama serve
 Restart=always
 User=root
@@ -98,7 +130,7 @@ User=root
 WantedBy=multi-user.target
 EOF
 
-sudo systemctl daemon-reexec
+# Reload and restart
 sudo systemctl daemon-reload
 sudo systemctl enable --now ollama
 
