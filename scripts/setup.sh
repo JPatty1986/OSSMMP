@@ -43,17 +43,17 @@ if [ "$GPU_MODE" = "gpu" ]; then
   # Correct the repository setup for NVIDIA Container Toolkit (only in GPU mode)
   info "Setting up NVIDIA Container Toolkit repository..."
 
-  
   # Add NVIDIA GPG key
   curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
 
   # Add NVIDIA repository based on the system's OS version
   curl -sL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
-    | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+  | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#' \
+  | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
 
   sed -i "s/\$(ARCH)/$(dpkg --print-architecture)/" nvidia-container-toolkit.list
 
-  sudo mv nvidia-container-toolkit.list /etc/apt/sources.list.d/
+  sudo mv nvidia-copntainer-toolkit.list /etc/apt/sources.list.d/
 
   # Update apt package list
   sudo apt-get update
