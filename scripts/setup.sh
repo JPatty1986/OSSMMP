@@ -47,7 +47,7 @@ if [ "$GPU_MODE" = "gpu" ]; then
   curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
 
   # Add NVIDIA repository based on the system's OS version
-  curl -sL https://nvidia.github.io/libnvidia-container/stable/$(. /etc/os-release && echo $ID)-$(. /etc/os-release && echo $VERSION_ID)/nvidia-container-toolkit.list \
+  curl -sL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
     | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
 
   # Update apt package list
