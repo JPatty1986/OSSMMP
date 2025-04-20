@@ -40,6 +40,18 @@ if [ "$GPU_MODE" = "gpu" ]; then
   sudo apt-get install -y ubuntu-drivers-common
   sudo ubuntu-drivers autoinstall
 
+  # Correct the repository setup for NVIDIA Container Toolkit (only in GPU mode)
+  info "Setting up NVIDIA Container Toolkit repository..."
+
+  # Add NVIDIA GPG key
+  curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+
+  # Add NVIDIA repository based on the system's OS version
+  curl -sL https://nvidia.github.io/libnvidia-container/stable/$(. /etc/os-release && echo $ID)-$(. /etc/os-release && echo $VERSION_ID)/nvidia-container-toolkit.list \
+    | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+
+  # Update apt package list
+  sudo apt-get update
   # 2) Install the NVIDIA Container Toolkit so Docker --gpus works
   curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
     | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
