@@ -52,22 +52,15 @@ if [ "$GPU_MODE" = "gpu" ]; then
 
   # Update apt package list
   sudo apt-get update
+
   # 2) Install the NVIDIA Container Toolkit so Docker --gpus works
-  curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
-    | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-  curl -sL https://nvidia.github.io/libnvidia-container/stable/$(. /etc/os-release && echo $ID)-$(. /etc/os-release && echo $VERSION_ID)/nvidia-container-toolkit.list \
-    | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
-    | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-  sudo apt-get update
   sudo apt-get install -y nvidia-container-toolkit
-  sudo nvidia-ctk runtime configure --runtime=docker    # register the NVIDIA runtime :contentReference[oaicite:0]{index=0}
+  sudo nvidia-ctk runtime configure --runtime=docker
   sudo systemctl restart docker
 
   # 3) Enable Flash Attention in Ollama
-  export OLLAMA_FLASH_ATTENTION=1                          # tells Ollama to use Flash Attention :contentReference[oaicite:1]{index=1}
+  export OLLAMA_FLASH_ATTENTION=1                          # tells Ollama to use Flash Attention
 
-  # (Optional) only expose GPU #0 to Ollama:
-  # export CUDA_VISIBLE_DEVICES=0
 else
   warn "Skipping GPU setup; continuing in CPU-only mode."
 fi
@@ -78,6 +71,13 @@ sudo apt install -y \
   parted cryptsetup curl git docker.io docker-compose unzip \
   python3-docker python3-dotenv python3-docopt python3-texttable python3-websocket \
   containerd dnsmasq-base bridge-utils runc ubuntu-fan pigz
+
+# Ensure the encrypted volume is mounted before changing Docker config
+if mountpoint -q /securedata; then
+  info "Encrypted volume is mounted at /securedata. Proceeding with Docker configuration..."
+else
+  error_exit "Encrypted volume not mounted at /securedata. Exiting."
+fi
 
 # Configure Docker to use the encrypted directory for its data storage
 info "Configuring Docker to use the encrypted volume for storage..."
@@ -129,9 +129,6 @@ info "Encrypted volume mounted at /securedata"
 info "Installing Ollama..."
 curl -fsSL https://ollama.com/install.sh | sh
 
-# Skip pulling a default model; let the user choose manually later
-# ollama pull llama3 || true
-
 # Run Ollama in the background
 sudo tee /etc/systemd/system/ollama.service > /dev/null <<EOF
 [Unit]
@@ -140,10 +137,7 @@ After=network.target docker.service
 Requires=docker.service
 
 [Service]
-# If you set OLLAMA_FLASH_ATTENTION above, systemd will pick it up:
 Environment=OLLAMA_FLASH_ATTENTION=1
-# (Optional) To pin to a specific GPU:
-# Environment=CUDA_VISIBLE_DEVICES=0
 ExecStart=/usr/local/bin/ollama serve
 Restart=always
 User=root
@@ -167,7 +161,6 @@ sudo docker run -d \
   -v /securedata:/app/data \
   --name open-webui \
   ghcr.io/open-webui/open-webui:ollama
-
 
 info "Setup complete!"
 echo -e "\n- Ollama running on port 11434 (mode: $GPU_MODE)"
