@@ -67,6 +67,16 @@ sudo apt install -y \
   python3-docker python3-dotenv python3-docopt python3-texttable python3-websocket \
   containerd dnsmasq-base bridge-utils runc ubuntu-fan pigz
 
+# Configure Docker to use the encrypted directory for its data storage
+info "Configuring Docker to use the encrypted volume for storage..."
+sudo mkdir -p /etc/docker
+echo '{
+  "data-root": "/securedata/docker"
+}' | sudo tee /etc/docker/daemon.json
+
+# Restart Docker to apply the new configuration
+sudo systemctl restart docker
+
 info "Enabling unattended upgrades for security patches..."
 cat <<EOF | sudo tee /etc/apt/apt.conf.d/20auto-upgrades
 APT::Periodic::Update-Package-Lists "1";
