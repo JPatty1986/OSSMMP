@@ -36,9 +36,8 @@ if [ "$GPU_MODE" = "gpu" ]; then
   info "Installing NVIDIA drivers and Container Toolkit for GPU support…"
 
   # Add NVIDIA GPG key
-  sudo apt-key del 7fa2af80
   info "Adding NVIDIA GPG key..."
-  sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys DDCAE044F796ECB0
+  curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.gpg | sudo tee /etc/apt/trusted.gpg.d/nvidia-container-toolkit.asc
   sudo apt-get update
   wget http://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb
   sudo dpkg -i cuda-keyring_1.0-1_all.deb
