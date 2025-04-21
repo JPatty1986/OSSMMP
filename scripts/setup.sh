@@ -38,8 +38,9 @@ if [ "$GPU_MODE" = "gpu" ]; then
   # Add NVIDIA GPG key
   info "Adding NVIDIA GPG key..."
   sudo apt-key del 7fa2af80
-  sudo apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/3bf863cc.pub
-
+  wget https://developer.download.nvidia.com/compute/cuda/repos/$distro/$arch/cuda-keyring_1.0-1_all.deb
+  sudo chmod 644 /usr/share/keyring/nvidia-container-toolkit-keyring.gpg
+  sudo dpkg -i cuda-keyring_1.0-1_all.deb
   sudo apt-get update
   sudo apt-get install -f
 
