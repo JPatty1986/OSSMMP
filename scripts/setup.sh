@@ -37,14 +37,13 @@ if [ "$GPU_MODE" = "gpu" ]; then
 
   # Add NVIDIA GPG key
   info "Adding NVIDIA GPG key..."
-  curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.gpg | sudo tee /etc/apt/trusted.gpg.d/nvidia-container-toolkit.asc
-  sudo apt-get update
   wget http://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb
   sudo dpkg -i cuda-keyring_1.0-1_all.deb
-
+  sudo apt-get update
   sudo apt-get install -f
 
   # 1) Install the recommended NVIDIA driver
+  info "Installing the recommended NVIDIA driver..."
   sudo apt-get update
   sudo apt-get install -y ubuntu-drivers-common
   sudo ubuntu-drivers autoinstall
