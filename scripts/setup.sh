@@ -35,25 +35,26 @@ fi
 if [ "$GPU_MODE" = "gpu" ]; then
   info "Installing NVIDIA drivers and Container Toolkit for GPU support…"
 
+  # Add NVIDIA GPG key
+  sudo apt-key del 7fa2af80
+  info "Adding NVIDIA GPG key..."
+  sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys DDCAE044F796ECB0
+  sudo apt-get update
+  wget http://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb
+  sudo dpkg -i cuda-keyring_1.0-1_all.deb
+
+  sudo apt-get install -f
+
   # 1) Install the recommended NVIDIA driver
   sudo apt-get update
   sudo apt-get install -y ubuntu-drivers-common
   sudo ubuntu-drivers autoinstall
-
-  # Correct the repository setup for NVIDIA Container Toolkit (only in GPU mode)
-  info "Setting up NVIDIA Container Toolkit repository..."
-
-  # Add NVIDIA GPG key
-  curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-
+  
   # Add NVIDIA repository based on the system's OS version
+  info "Setting up NVIDIA Container Toolkit respository..."
   curl -sL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
   | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#' \
   | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-
-  sed -i "s/\$(ARCH)/$(dpkg --print-architecture)/" nvidia-container-toolkit.list
-
-  sudo mv nvidia-copntainer-toolkit.list /etc/apt/sources.list.d/
 
   # Update apt package list
   sudo apt-get update
@@ -61,7 +62,6 @@ if [ "$GPU_MODE" = "gpu" ]; then
   # 2) Install the NVIDIA Container Toolkit so Docker --gpus works
   sudo apt-get install -y nvidia-container-toolkit
   sudo nvidia-ctk runtime configure --runtime=docker
-  sudo systemctl restart docker
 
   # 3) Enable Flash Attention in Ollama
   export OLLAMA_FLASH_ATTENTION=1                          # tells Ollama to use Flash Attention
@@ -77,7 +77,38 @@ sudo apt install -y \
   python3-docker python3-dotenv python3-docopt python3-texttable python3-websocket \
   containerd dnsmasq-base bridge-utils runc ubuntu-fan pigz
 
+# Prompt for encrypted container size
+read -p "Enter encrypted container size in GB (e.g., 5, 10, 50): " CONTAINER_SIZE_GB
+
+info "Creating or opening encrypted file container..."
+sudo mkdir -p /securedata
+if [ ! -f /securedata/container.img ]; then
+  sudo dd if=/dev/zero of=/securedata/container.img bs=1G count=$CONTAINER_SIZE_GB status=progress
+fi
+
 # Ensure the encrypted volume is mounted before changing Docker config
+info "Ensuring encrypted volume is mounted before changing Docker config..."
+
+# Create encryption key if needed
+KEY_FILE="/root/.securekey"
+if [ ! -f "$KEY_FILE" ]; then
+  info "Generating encryption key..."
+  sudo head -c 64 /dev/urandom > "$KEY_FILE"
+  sudo chmod 600 "$KEY_FILE"
+fi
+
+# Set up and open LUKS volume
+if ! sudo cryptsetup isLuks /securedata/container.img; then
+  echo YES | sudo cryptsetup luksFormat /securedata/container.img "$KEY_FILE" --batch-mode
+fi
+
+sudo cryptsetup luksOpen /securedata/container.img securedata --key-file "$KEY_FILE"
+sudo mkfs.ext4 /dev/mapper/securedata
+sudo mount /dev/mapper/securedata /securedata
+
+info "Encrypted volume mounted at /securedata"
+
+# Check if the encrypted volume is mounted correctly
 if mountpoint -q /securedata; then
   info "Encrypted volume is mounted at /securedata. Proceeding with Docker configuration..."
 else
@@ -101,34 +132,6 @@ APT::Periodic::Download-Upgradeable-Packages "1";
 APT::Periodic::AutocleanInterval "7";
 APT::Periodic::Unattended-Upgrade "1";
 EOF
-
-# Prompt for encrypted container size
-read -p "Enter encrypted container size in GB (e.g., 5, 10, 50): " CONTAINER_SIZE_GB
-
-info "Creating or opening encrypted file container..."
-sudo mkdir -p /securedata
-if [ ! -f /securedata/container.img ]; then
-  sudo dd if=/dev/zero of=/securedata/container.img bs=1G count=$CONTAINER_SIZE_GB status=progress
-fi
-
-# Create encryption key if needed
-KEY_FILE="/root/.securekey"
-if [ ! -f "$KEY_FILE" ]; then
-  info "Generating encryption key..."
-  sudo head -c 64 /dev/urandom > "$KEY_FILE"
-  sudo chmod 600 "$KEY_FILE"
-fi
-
-# Set up and open LUKS volume
-if ! sudo cryptsetup isLuks /securedata/container.img; then
-  echo YES | sudo cryptsetup luksFormat /securedata/container.img "$KEY_FILE" --batch-mode
-fi
-
-sudo cryptsetup luksOpen /securedata/container.img securedata --key-file "$KEY_FILE"
-sudo mkfs.ext4 /dev/mapper/securedata
-sudo mount /dev/mapper/securedata /securedata
-
-info "Encrypted volume mounted at /securedata"
 
 # Install Ollama
 info "Installing Ollama..."
