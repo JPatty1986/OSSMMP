@@ -9,6 +9,7 @@ This project sets up a **secure, encrypted development environment** using Docke
 - ✅ Detects GPU or defaults to CPU
 - 🔐 Creates and mounts encrypted storage (`/securedata`)
 - 🐳 Installs Docker and Docker Compose
+- 📦 Relocates Docker's root data directory into `/securedata` for encrypted containerization
 - 🧠 Installs [Ollama](https://ollama.com) (no models pulled by default)
 - 🌐 Deploys [Open WebUI](https://github.com/open-webui/open-webui) on **port 3000**
 - 🔄 Runs Ollama as a persistent system service via systemd
@@ -36,7 +37,7 @@ curl -O https://raw.githubusercontent.com/<your-username>/<your-repo>/main/setup
 ### 2. Make it executable
 
 ```bash
-chmod +x setup.sh
+sudo chmod +x setup.sh
 ```
 
 ### 3. Run the script
@@ -91,7 +92,12 @@ sudo head -c 64 /dev/urandom > /root/.securekey
 sudo chmod 600 /root/.securekey
 ```
 
-> ⚠️ **Reminder:** Back up your key file securely. Without it, your encrypted volume is unrecoverable.
+⚠️ **IMPORTANT: Back Up `/root/.securekey` Securely**
+This is the only key that unlocks your encrypted volume.
+
+- 📁 Store it in a **separate, secure location** (e.g., encrypted USB, password manager file vault).
+- 🔓 Without this file, your encrypted data **cannot be recovered.**
+
 
 ---
 
@@ -106,6 +112,13 @@ sudo chmod 600 /root/.securekey
 > 🛑 You do **not** need to run `ollama pull` or configure anything from the command line — Open WebUI handles it all!
 
 ---
+
+## 🚧 Known Limitations
+
+- ❌ **No AMD GPU support:** Ollama currently supports only NVIDIA GPUs. AMD GPUs will fallback to CPU mode.
+- 🔒 **Key storage is manual:** You must back up the `/root/.securekey` file yourself — the script does not automate this for security reasons.
+---
+
 
 ## 📬 Need Help?
 
