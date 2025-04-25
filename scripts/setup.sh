@@ -24,49 +24,16 @@ function error_exit {
 
 # Detect GPU
 info "Detecting GPU..."
-if lspci | grep -i -E 'nvidia|amd' > /dev/null; then
-  GPU_MODE="gpu"
-  info "GPU detected."
+if lspci | grep -i 'nvidia' | grep -Ei 'vga|3d' > /dev/null; then
+  GPU_MODE="nvidia"
+  info "NVIDIA GPU detected — Ollama will use GPU acceleration."
+elif lspci | grep -i 'amd' | grep -Ei 'vga|3d' > /dev/null; then
+  GPU_MODE="amd"
+  warn "AMD GPU detected — Ollama does NOT support AMD GPU acceleration. Falling back to CPU mode."
+  GPU_MODE="cpu"
 else
   GPU_MODE="cpu"
-  warn "No GPU detected. Using CPU mode."
-fi
-
-if [ "$GPU_MODE" = "gpu" ]; then
-  info "Installing NVIDIA drivers and Container Toolkit for GPU support…"
-  
-  # Add NVIDIA GPG key
-  info "Adding NVIDIA GPG key..."
-  sudo apt-key del 7fa2af80
-  sudo apt-get install -f
-  wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb
-  sudo dpkg -i cuda-keyring_1.0-1_all.deb
-  sudo apt-get update
-  sudo chmod 644 /usr/share/keyring/nvidia-container-toolkit-keyring.gpg
-
-  # 1) Install the recommended NVIDIA driver
-  info "Installing the recommended NVIDIA driver..."
-  sudo apt-get install -y ubuntu-drivers-common
-  sudo ubuntu-drivers autoinstall
-  
-  # Add NVIDIA repository based on the system's OS version
-  info "Setting up NVIDIA Container Toolkit respository..."
-  curl -sL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
-  | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#' \
-  | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-
-  # Update apt package list
-  sudo apt-get update
-
-  # 2) Install the NVIDIA Container Toolkit so Docker --gpus works
-  sudo apt-get install -y nvidia-container-toolkit
-  sudo nvidia-ctk runtime configure --runtime=docker
-
-  # 3) Enable Flash Attention in Ollama
-  export OLLAMA_FLASH_ATTENTION=1                          # tells Ollama to use Flash Attention
-
-else
-  warn "Skipping GPU setup; continuing in CPU-only mode."
+  warn "No supported GPU detected. Proceeding in CPU-only mode."
 fi
 
 info "Updating and installing base packages..."
@@ -76,6 +43,14 @@ sudo apt install -y \
   python3-docker python3-dotenv python3-docopt python3-texttable python3-websocket \
   containerd dnsmasq-base bridge-utils runc ubuntu-fan pigz
 
+info "Enabling unattended upgrades for security patches..."
+cat <<EOF | sudo tee /etc/apt/apt.conf.d/20auto-upgrades
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Download-Upgradeable-Packages "1";
+APT::Periodic::AutocleanInterval "7";
+APT::Periodic::Unattended-Upgrade "1";
+EOF
+
 # Prompt for encrypted container size
 read -p "Enter encrypted container size in GB (e.g., 5, 10, 50): " CONTAINER_SIZE_GB
 
@@ -84,9 +59,6 @@ sudo mkdir -p /securedata
 if [ ! -f /securedata/container.img ]; then
   sudo dd if=/dev/zero of=/securedata/container.img bs=1G count=$CONTAINER_SIZE_GB status=progress
 fi
-
-# Ensure the encrypted volume is mounted before changing Docker config
-info "Ensuring encrypted volume is mounted before changing Docker config..."
 
 # Create encryption key if needed
 KEY_FILE="/root/.securekey"
@@ -107,44 +79,23 @@ sudo mount /dev/mapper/securedata /securedata
 
 info "Encrypted volume mounted at /securedata"
 
-# Check if the encrypted volume is mounted correctly
-if mountpoint -q /securedata; then
-  info "Encrypted volume is mounted at /securedata. Proceeding with Docker configuration..."
-else
-  error_exit "Encrypted volume not mounted at /securedata. Exiting."
-fi
-
-# Configure Docker to use the encrypted directory for its data storage
-info "Configuring Docker to use the encrypted volume for storage..."
-sudo mkdir -p /etc/docker
-echo '{
-  "data-root": "/securedata/docker"
-}' | sudo tee /etc/docker/daemon.json
-
-# Restart Docker to apply the new configuration
-sudo systemctl restart docker
-
-info "Enabling unattended upgrades for security patches..."
-cat <<EOF | sudo tee /etc/apt/apt.conf.d/20auto-upgrades
-APT::Periodic::Update-Package-Lists "1";
-APT::Periodic::Download-Upgradeable-Packages "1";
-APT::Periodic::AutocleanInterval "7";
-APT::Periodic::Unattended-Upgrade "1";
-EOF
-
 # Install Ollama
 info "Installing Ollama..."
 curl -fsSL https://ollama.com/install.sh | sh
 
-# Run Ollama in the background
-sudo tee /etc/systemd/system/ollama.service > /dev/null <<EOF
+# Set up Ollama systemd service based on GPU support
+info "Setting up Ollama systemd service..."
+
+if [ "$GPU_MODE" = "cpu" ]; then
+  info "Configuring Ollama to run in CPU mode (disabling CUDA)..."
+  sudo tee /etc/systemd/system/ollama.service > /dev/null <<EOF
 [Unit]
-Description=Ollama Service
+Description=Ollama Service (CPU Mode)
 After=network.target docker.service
 Requires=docker.service
 
 [Service]
-Environment=OLLAMA_FLASH_ATTENTION=1
+Environment=OLLAMA_NO_CUDA=1
 ExecStart=/usr/local/bin/ollama serve
 Restart=always
 User=root
@@ -152,8 +103,24 @@ User=root
 [Install]
 WantedBy=multi-user.target
 EOF
+else
+  sudo tee /etc/systemd/system/ollama.service > /dev/null <<EOF
+[Unit]
+Description=Ollama Service (GPU Mode)
+After=network.target docker.service
+Requires=docker.service
 
-# Reload and restart
+[Service]
+ExecStart=/usr/local/bin/ollama serve
+Restart=always
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+fi
+
+sudo systemctl daemon-reexec
 sudo systemctl daemon-reload
 sudo systemctl enable --now ollama
 
@@ -161,8 +128,22 @@ info "Ollama is running on port 11434 (mode: $GPU_MODE)"
 
 # Launch Open WebUI container on port 3000
 echo "[+] Launching Open WebUI using prebuilt container on port 3000..."
+
+# Configure GPU flags for Docker based on GPU mode
+if [ "$GPU_MODE" = "nvidia" ]; then
+  sudo apt update
+  sudo apt install -y nvidia-container-toolkit
+  sudo nvidia-ctk runtime configure --runtime=docker
+  sudo systemctl restart docker
+  GPU_DOCKER_FLAG="--gpus all"
+else
+  GPU_DOCKER_FLAG=""
+fi
+
 sudo docker rm -f open-webui &>/dev/null || true
+
 sudo docker run -d \
+  $GPU_DOCKER_FLAG \
   -p 3000:8080 \
   -e OLLAMA_API_BASE_URL=http://localhost:11434 \
   -v /securedata:/app/data \
