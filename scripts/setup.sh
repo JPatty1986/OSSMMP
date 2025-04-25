@@ -24,12 +24,16 @@ function error_exit {
 
 # Detect GPU
 info "Detecting GPU..."
-if lspci | grep -i -E 'nvidia|amd' > /dev/null; then
-  GPU_MODE="gpu"
-  info "GPU detected."
+if lspci | grep -i 'nvidia' | grep -Ei 'vga|3d' > /dev/null; then
+  GPU_MODE="nvidia"
+  info "NVIDIA GPU detected — Ollama will use GPU acceleration."
+elif lspci | grep -i 'amd' | grep -Ei 'vga|3d' > /dev/null; then
+  GPU_MODE="amd"
+  warn "AMD GPU detected — Ollama does NOT support AMD GPU acceleration. Falling back to CPU mode."
+  GPU_MODE="cpu"
 else
   GPU_MODE="cpu"
-  warn "No GPU detected. Using CPU mode."
+  warn "No supported GPU detected. Proceeding in CPU-only mode."
 fi
 
 info "Updating and installing base packages..."
@@ -79,13 +83,30 @@ info "Encrypted volume mounted at /securedata"
 info "Installing Ollama..."
 curl -fsSL https://ollama.com/install.sh | sh
 
-# Skip pulling a default model; let the user choose manually later
-# ollama pull llama3 || true
+# Set up Ollama systemd service based on GPU support
+info "Setting up Ollama systemd service..."
 
-# Run Ollama in the background
-sudo tee /etc/systemd/system/ollama.service > /dev/null <<EOF
+if [ "$GPU_MODE" = "cpu" ]; then
+  info "Configuring Ollama to run in CPU mode (disabling CUDA)..."
+  sudo tee /etc/systemd/system/ollama.service > /dev/null <<EOF
 [Unit]
-Description=Ollama Service
+Description=Ollama Service (CPU Mode)
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Environment=OLLAMA_NO_CUDA=1
+ExecStart=/usr/local/bin/ollama serve
+Restart=always
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+else
+  sudo tee /etc/systemd/system/ollama.service > /dev/null <<EOF
+[Unit]
+Description=Ollama Service (GPU Mode)
 After=network.target docker.service
 Requires=docker.service
 
@@ -97,6 +118,7 @@ User=root
 [Install]
 WantedBy=multi-user.target
 EOF
+fi
 
 sudo systemctl daemon-reexec
 sudo systemctl daemon-reload
@@ -113,7 +135,6 @@ sudo docker run -d \
   -v /securedata:/app/data \
   --name open-webui \
   ghcr.io/open-webui/open-webui:ollama
-
 
 info "Setup complete!"
 echo -e "\n- Ollama running on port 11434 (mode: $GPU_MODE)"
