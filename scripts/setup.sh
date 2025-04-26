@@ -128,8 +128,22 @@ info "Ollama is running on port 11434 (mode: $GPU_MODE)"
 
 # Launch Open WebUI container on port 3000
 echo "[+] Launching Open WebUI using prebuilt container on port 3000..."
+
+# Configure GPU flags for Docker based on GPU mode
+if [ "$GPU_MODE" = "nvidia" ]; then
+  sudo apt update
+  sudo apt install -y nvidia-container-toolkit
+  sudo nvidia-ctk runtime configure --runtime=docker
+  sudo systemctl restart docker
+  GPU_DOCKER_FLAG="--gpus all"
+else
+  GPU_DOCKER_FLAG=""
+fi
+
 sudo docker rm -f open-webui &>/dev/null || true
+
 sudo docker run -d \
+  $GPU_DOCKER_FLAG \
   -p 3000:8080 \
   -e OLLAMA_API_BASE_URL=http://localhost:11434 \
   -v /securedata:/app/data \
