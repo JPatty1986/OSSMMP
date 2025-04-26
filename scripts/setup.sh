@@ -79,6 +79,22 @@ sudo mount /dev/mapper/securedata /securedata
 
 info "Encrypted volume mounted at /securedata"
 
+# Move Docker's data-root into encrypted volume
+info "Reconfiguring Docker to use encrypted storage..."
+
+sudo systemctl stop docker
+sudo mkdir -p /securedata/docker
+sudo tee /etc/docker/daemon.json > /dev/null <<EOF
+{
+  "data-root": "/securedata/docker"
+}
+EOF
+
+# Restart Docker to apply new settings
+sudo systemctl daemon-reexec
+sudo systemctl daemon-reload
+sudo systemctl restart docker
+
 # Install Ollama
 info "Installing Ollama..."
 curl -fsSL https://ollama.com/install.sh | sh
@@ -149,6 +165,35 @@ sudo docker run -d \
   -v /securedata:/app/data \
   --name open-webui \
   ghcr.io/open-webui/open-webui:ollama
+
+# Create systemd service to auto-start Open WebUI container on boot
+info "Creating systemd service for Open WebUI..."
+
+sudo tee /etc/systemd/system/open-webui.service > /dev/null <<EOF
+[Unit]
+Description=Open WebUI Container
+Requires=docker.service
+After=docker.service
+
+[Service]
+Restart=always
+ExecStartPre=-/usr/bin/docker rm -f open-webui
+ExecStart=/usr/bin/docker run \\
+  $GPU_DOCKER_FLAG \\
+  -p 3000:8080 \\
+  -e OLLAMA_API_BASE_URL=http://localhost:11434 \\
+  -v /securedata:/app/data \\
+  --name open-webui \\
+  ghcr.io/open-webui/open-webui:ollama
+ExecStop=/usr/bin/docker stop open-webui
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reexec
+sudo systemctl daemon-reload
+sudo systemctl enable --now open-webui
 
 info "Setup complete!"
 echo -e "\n- Ollama running on port 11434 (mode: $GPU_MODE)"
